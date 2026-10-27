@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+- job_name: careconnect
+  metrics_path: /actuator/prometheus
+  static_configs:
+  - targets:
+    - patient:8080
+    - appointment:8080
+    - insurance:8080
+    - notification:8080

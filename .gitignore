@@ -1,0 +1,15 @@
+**/target/
+**/node_modules/
+**/dist/
+.env
+.env.*
+!.env.example
+**/.terraform/
+*.tfstate*
+*.tfplan
+*.tfvars
+!terraform-example.tfvars
+playwright-report/
+test-results/
+coverage/
+.DS_Store

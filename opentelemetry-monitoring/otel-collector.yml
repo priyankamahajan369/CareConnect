@@ -1,0 +1,21 @@
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+processors:
+  batch: {}
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+service:
+  pipelines:
+    traces:
+      exporters:
+      - otlp/tempo
+      processors:
+      - batch
+      receivers:
+      - otlp

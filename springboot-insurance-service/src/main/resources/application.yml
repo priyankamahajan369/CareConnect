@@ -1,0 +1,84 @@
+server:
+  port: ${PORT:8080}
+spring:
+  application:
+    name: insurance-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/insurance}
+    username: ${DB_USER:careconnect}
+    password: ${DB_PASSWORD:local-only-change-me}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  cache:
+    type: redis
+    redis:
+      time-to-live: 60000
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER:http://localhost:8180/realms/careconnect}
+          jwk-set-uri: ${OIDC_JWKS:http://localhost:8180/realms/careconnect/protocol/openid-connect/certs}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      group-id: careconnect-notifications
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+  metrics:
+    tags:
+      application: ${spring.application.name}
+logging:
+  structured:
+    format:
+      console: logstash
+careconnect:
+  patient-url: ${PATIENT_URL:http://localhost:8081}
+  integration-mode: ${INTEGRATION_MODE:mock}
+  npi-url: ${NPI_URL:https://npiregistry.cms.hhs.gov}
+  email-url: ${EMAIL_URL:https://api.resend.com}
+  email-key: ${EMAIL_API_KEY:}
+  email-from: ${EMAIL_FROM:onboarding@resend.dev}
+resilience4j:
+  circuitbreaker:
+    instances:
+      providerRegistry:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 30s
+  retry:
+    instances:
+      providerRegistry:
+        maxAttempts: 2
+        waitDuration: 300ms

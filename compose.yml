@@ -1,0 +1,280 @@
+name: careconnect
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: careconnect
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-local-only-change-me}
+      POSTGRES_DB: postgres
+    volumes:
+    - postgres-data:/var/lib/postgresql/data
+    - ./postgres-databases/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U careconnect -d postgres
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: redis:7.4.5-alpine
+    command:
+    - redis-server
+    - --appendonly
+    - 'yes'
+    volumes:
+    - redis-data:/data
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
+      interval: 10s
+      timeout: 10s
+      retries: 20
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.3
+    command:
+    - start-dev
+    - --import-realm
+    ports:
+    - 127.0.0.1:8180:8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-local-admin-change-me}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: careconnect
+      KC_DB_PASSWORD: ${DB_PASSWORD:-local-only-change-me}
+      KC_HOSTNAME: http://localhost:8180
+    volumes:
+    - ./keycloak-security/keycloak-careconnect-realm.json:/opt/keycloak/data/import/realm.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.135.0
+    command:
+    - --config=/etc/otelcol/config.yaml
+    volumes:
+    - ./opentelemetry-monitoring/otel-collector.yml:/etc/otelcol/config.yaml:ro
+    depends_on:
+    - tempo
+  tempo:
+    image: grafana/tempo:2.8.2
+    command:
+    - -config.file=/etc/tempo.yml
+    volumes:
+    - ./opentelemetry-monitoring/tempo.yml:/etc/tempo.yml:ro
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    ports:
+    - 127.0.0.1:9090:9090
+    volumes:
+    - ./prometheus-monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  grafana:
+    image: grafana/grafana:12.1.1
+    ports:
+    - 127.0.0.1:3000:3000
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-local-grafana-change-me}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+    - ./grafana-monitoring/provisioning:/etc/grafana/provisioning:ro
+  patient:
+    build:
+      context: .
+      dockerfile: springboot-patient-service/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/patient
+      DB_PASSWORD: ${DB_PASSWORD:-local-only-change-me}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP: kafka:9092
+      OIDC_ISSUER: http://localhost:8180/realms/careconnect
+      OIDC_JWKS: http://keycloak:8080/realms/careconnect/protocol/openid-connect/certs
+      PATIENT_URL: http://patient:8080
+      INTEGRATION_MODE: ${INTEGRATION_MODE:-mock}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-onboarding@resend.dev}
+      OTEL_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    restart: on-failure
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O - http://localhost:8080/actuator/health/readiness || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    ports:
+    - 127.0.0.1:8081:8080
+  appointment:
+    build:
+      context: .
+      dockerfile: springboot-appointment-service/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/appointment
+      DB_PASSWORD: ${DB_PASSWORD:-local-only-change-me}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP: kafka:9092
+      OIDC_ISSUER: http://localhost:8180/realms/careconnect
+      OIDC_JWKS: http://keycloak:8080/realms/careconnect/protocol/openid-connect/certs
+      PATIENT_URL: http://patient:8080
+      INTEGRATION_MODE: ${INTEGRATION_MODE:-mock}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-onboarding@resend.dev}
+      OTEL_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    restart: on-failure
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O - http://localhost:8080/actuator/health/readiness || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    ports:
+    - 127.0.0.1:8082:8080
+  insurance:
+    build:
+      context: .
+      dockerfile: springboot-insurance-service/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/insurance
+      DB_PASSWORD: ${DB_PASSWORD:-local-only-change-me}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP: kafka:9092
+      OIDC_ISSUER: http://localhost:8180/realms/careconnect
+      OIDC_JWKS: http://keycloak:8080/realms/careconnect/protocol/openid-connect/certs
+      PATIENT_URL: http://patient:8080
+      INTEGRATION_MODE: ${INTEGRATION_MODE:-mock}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-onboarding@resend.dev}
+      OTEL_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    restart: on-failure
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O - http://localhost:8080/actuator/health/readiness || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    ports:
+    - 127.0.0.1:8083:8080
+  notification:
+    build:
+      context: .
+      dockerfile: springboot-notification-service/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/notification
+      DB_PASSWORD: ${DB_PASSWORD:-local-only-change-me}
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP: kafka:9092
+      OIDC_ISSUER: http://localhost:8180/realms/careconnect
+      OIDC_JWKS: http://keycloak:8080/realms/careconnect/protocol/openid-connect/certs
+      PATIENT_URL: http://patient:8080
+      INTEGRATION_MODE: ${INTEGRATION_MODE:-mock}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-onboarding@resend.dev}
+      OTEL_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    restart: on-failure
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O - http://localhost:8080/actuator/health/readiness || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    ports:
+    - 127.0.0.1:8084:8080
+  gateway:
+    build:
+      context: .
+      dockerfile: springcloud-api-gateway/Dockerfile
+    ports:
+    - 127.0.0.1:8080:8080
+    environment:
+      PATIENT_URL: http://patient:8080
+      APPOINTMENT_URL: http://appointment:8080
+      INSURANCE_URL: http://insurance:8080
+      NOTIFICATION_URL: http://notification:8080
+    depends_on:
+      patient:
+        condition: service_healthy
+      appointment:
+        condition: service_healthy
+      insurance:
+        condition: service_healthy
+      notification:
+        condition: service_healthy
+  ui:
+    build:
+      context: react-careconnect-ui
+      args:
+        VITE_MODE: live
+    ports:
+    - 127.0.0.1:5173:8080
+    depends_on:
+    - gateway
+volumes:
+  postgres-data: {}
+  redis-data: {}

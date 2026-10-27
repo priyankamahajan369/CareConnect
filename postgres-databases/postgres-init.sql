@@ -1,0 +1,5 @@
+CREATE DATABASE patient;
+CREATE DATABASE appointment;
+CREATE DATABASE insurance;
+CREATE DATABASE notification;
+CREATE DATABASE keycloak;

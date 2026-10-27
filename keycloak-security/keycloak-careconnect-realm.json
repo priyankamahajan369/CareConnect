@@ -1,0 +1,87 @@
+{
+  "realm": "careconnect",
+  "enabled": true,
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "PATIENT"
+      },
+      {
+        "name": "STAFF"
+      },
+      {
+        "name": "ADMIN"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "careconnect-ui",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "careconnect-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "staff-demo",
+      "username": "staff",
+      "enabled": true,
+      "email": "staff@example.test",
+      "firstName": "Demo",
+      "lastName": "Coordinator",
+      "emailVerified": true,
+      "realmRoles": [
+        "STAFF"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "CareConnect-Staff-2026!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "patient-demo",
+      "username": "patient",
+      "enabled": true,
+      "email": "maya@example.test",
+      "firstName": "Maya",
+      "lastName": "Bennett",
+      "emailVerified": true,
+      "realmRoles": [
+        "PATIENT"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "CareConnect-Patient-2026!",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+CREATE TABLE verifications(id UUID PRIMARY KEY,patient_id UUID,member_id VARCHAR(255),payer VARCHAR(255),status VARCHAR(255),source VARCHAR(255),reference VARCHAR(255),copay INTEGER NOT NULL,checked_at TIMESTAMPTZ);

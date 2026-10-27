@@ -1,0 +1,55 @@
+name: Deploy provisioned AWS environment
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Previously published immutable Git SHA
+        required: true
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  deploy:
+    environment: aws
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - name: Validate and apply to configured remote state
+        working-directory: terraform-aws
+        env:
+          TF_VAR_region: ${{ vars.AWS_REGION }}
+          TF_VAR_image_tag: ${{ inputs.image_tag }}
+          TF_VAR_oidc_issuer: ${{ vars.OIDC_ISSUER }}
+          TF_VAR_api_hostname: ${{ vars.API_HOSTNAME }}
+          TF_VAR_api_certificate_arn: ${{ vars.API_CERTIFICATE_ARN }}
+          TF_VAR_route53_zone_id: ${{ vars.ROUTE53_ZONE_ID }}
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          STATE_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          test -n "$STATE_BUCKET"
+          printf '%s\n' 'terraform { backend "s3" {} }' > terraform-backend.tf
+          terraform init -backend-config="bucket=$STATE_BUCKET" -backend-config="key=careconnect/terraform.tfstate" -backend-config="region=$STATE_REGION" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+          terraform validate
+          terraform plan -out=release.tfplan
+          terraform apply release.tfplan
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and publish frontend
+        env:
+          VITE_MODE: live
+          VITE_KEYCLOAK_URL: ${{ vars.KEYCLOAK_URL }}
+        run: |
+          npm ci --prefix react-careconnect-ui
+          npm run build --prefix react-careconnect-ui
+          bucket=$(terraform -chdir=terraform-aws output -raw ui_bucket)
+          distribution=$(terraform -chdir=terraform-aws output -raw distribution_id)
+          aws s3 sync react-careconnect-ui/dist "s3://$bucket" --delete --cache-control 'max-age=300'
+          aws cloudfront create-invalidation --distribution-id "$distribution" --paths '/*'

@@ -1,0 +1,2 @@
+CREATE TABLE notifications(id UUID PRIMARY KEY,appointment_id UUID,owner_sub VARCHAR(255),message VARCHAR(255),delivery_status VARCHAR(255),recipient VARCHAR(255),created_at TIMESTAMPTZ);
+CREATE INDEX notifications_owner ON notifications(owner_sub,created_at);
